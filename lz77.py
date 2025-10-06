@@ -89,7 +89,7 @@ def longestMatch(data, searchBuffer: memoryview, lookAhead: memoryview, searchLe
             break
 
     
-    #print(best_offset, best_len, next_char)
+    
     if(best_len < lookLen):
         next_char = data[best_len + pos]
     else:
@@ -151,61 +151,68 @@ def decompressionProcessing(filename):
 def compressionProcessing(filename):
     pointers = compress(filename)
     name = filename[:len(filename)-4]
-    #try:
-    with open(name + ".tim", "wb") as write:
-                for pointer in pointers:
-                    offset = pointer >> 16
-                    length = (pointer >> 8) & 0xFF
-                    next_char = pointer & 0xFF
-                    write.write(struct.pack(">BB", offset, length))
-                    write.write(struct.pack("B", next_char))  
-    # except: 
-    #     f = open(name + ".tim", "x")
-    #     f.close()
-    #     with open(name + ".tim", "wb") as write:
-    #         for pointer in pointers:
-    #             offset = pointer[:8]
-    #             length = pointer[8:16]
-    #             next_char = pointer[16:]
-    #             write.write(struct.pack(">BB", offset, length))
-    #             write.write(struct.pack("B", next_char))   
+    try:
+        with open(name + ".tim", "wb") as write:
+            for pointer in pointers:
+                offset = pointer >> 16
+                length = (pointer >> 8) & 0xFF
+                next_char = pointer & 0xFF
+                write.write(struct.pack(">BB", offset, length))
+                write.write(struct.pack("B", next_char))  
+    except: 
+        f = open(name + ".tim", "x")
+        f.close()
+        with open(name + ".tim", "wb") as write:
+            for pointer in pointers:
+                offset = pointer >> 16
+                length = (pointer >> 8) & 0xFF
+                next_char = pointer & 0xFF
+                write.write(struct.pack(">BB", offset, length))
+                write.write(struct.pack("B", next_char))   
 
 def main():
     print("Welcome to the text file compression software!")
-    compOrDecomp = input("Do you want to compress (0) or decompress (1) a text file? Enter 0 or 1:")
-    if compOrDecomp == "0":
-        while True:
-            #try:
-                while True:
-                    filename = input("Enter the path of the text file to compress:")
-                    if filename[len(filename)-4:] == ".txt":
-                        break
-                    else:
-                        print("Please enter a valid .txt file path")
-                compressionProcessing(filename)
-                break
-            # except:
-            #     print("Please try a valid .txt file path")
-            #     continue
-        print("Compressed into " + filename[:len(filename)-4] + ".tim successfully!")
-    else: 
-        while True:
-            try:
-                while True:
-                    filename = input("Enter the path of the .tim file to decompress:")
-                    if filename[len(filename)-4:] == ".tim":
-                        break
-                    else:
-                        print("Please enter a valid .tim file path")
-                decompressionProcessing(filename)
-                break
-            except:
-                print("Please try a valid .tim file path")
-                continue
+    while True:
+        compOrDecomp = input("Do you want to compress (0) or decompress (1) a text file? Enter 0 or 1, or -1 to quit:")
+        if compOrDecomp == "-1":
+            return
+        if compOrDecomp == "0":
+            while True:
+                try:
+                    while True:
+                        filename = input("Enter the path of the text file to compress:")
+                        if filename[len(filename)-4:] == ".txt":
+                            break
+                        else:
+                            print("Please enter a valid .txt file path")
+                    compressionProcessing(filename)
+                    break
+                except:
+                    print("Please try a valid .txt file path")
+                    continue
+            print("Compressed into " + filename[:len(filename)-4] + ".tim successfully!")
+            return
+        if compOrDecomp == "1": 
+            while True:
+                try:
+                    while True:
+                        filename = input("Enter the path of the .tim file to decompress:")
+                        if filename[len(filename)-4:] == ".tim":
+                            break
+                        else:
+                            print("Please enter a valid .tim file path")
+                    decompressionProcessing(filename)
+                    break
+                except:
+                    print("Please try a valid .tim file path")
+                    continue
                 
             
-        print("Decompressed into " + filename[:len(filename)-4] + ".txt successfully!")
-
+            print("Decompressed into " + filename[:len(filename)-4] + ".txt successfully!")
+            return
+        else:
+            print("Please enter a valid option.")
+            continue
 
 if __name__ == "__main__":
     main()
