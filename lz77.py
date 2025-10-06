@@ -12,6 +12,7 @@ import struct
 WINDOW_SIZE = 255
 LOOK_AHEAD = 18                 # size of lookahead
 SEARCH_BUFFER = 255 - 18       # size of the search buffer
+MAX_CANDIDATES = 64
 
 
 """
@@ -23,25 +24,31 @@ Compresses a textfile using the LZ77 algorithm.
 """
 def compress(filename:str):
     pointers = []               # the array of pointers to represent the compressed data (tuples)
-    with open(filename) as file:    # open the file provided
-        data = file.read()          # access all text from the file        
+    with open(filename, "rb") as file:    # open the file provided
+        data = file.read()        # access all text from the file
+        data = memoryview(data)        
     pos = 0
-    while pos < len(data):
+    while pos < len(data):  # while the cursor isn't out of bounds
         # Define the sliding windows
-        lookAhead = data[pos : pos + LOOK_AHEAD]
+        lookAhead = data[pos : min(pos + LOOK_AHEAD, len(data))]
         searchBuffer = data[max(0, pos - SEARCH_BUFFER) : pos]
 
         # Find the longest match
-        match = longestMatch(searchBuffer, lookAhead, len(searchBuffer), len(lookAhead))
+        match = longestMatch(data, searchBuffer, lookAhead, len(searchBuffer), len(lookAhead), pos)
         pointers.append(match)
 
         # Extract offset/length/nextChar from the packed 24-bit integer
-        offset = match >> 16
+        
+        offset = (match >> 16) & 0xFF
         length = (match >> 8) & 0xFF
         next_char = match & 0xFF
+        
 
         # Slide window forward
-        pos += length + 1
+        if length < len(lookAhead):
+            pos += length + 1
+        else:
+            pos += length
     return pointers
             
             
@@ -55,93 +62,68 @@ Finds the longest repeating subsequence present in the search buffer compared to
 
 @return longestSub      a tuple of format (offset, length, next char) that makes the algorithm function properly
 """
-def longestMatch(searchBuffer, lookAhead, searchLen, lookLen):
-    longestSub = ord(lookAhead[0])   # the tuple representing the pointer to the longest matching subseq, default
-    if(searchLen == 0):             # if there's no search buffer yet, then there's no longest match, return
-        return longestSub
-    tmp = ''                 # sets the first part of longest sequence
-    l = 1                               # initial length of sequence
-    for i in range(lookLen):         # go through the look ahead buffer
-        tmp += lookAhead[i]           # if found, increase the size of tmp to find a bigger one possibly
-        flag = False
-        for j in range(l, searchLen+1):  # go through the search buffer backwards 
-            if(l == 1):             # to avoid index out of bounds for substring slices
-                if(searchBuffer[searchLen-j] == tmp):   # backwards as seen here, if rightmost is a match to the tmp subseq then it's the longest 
-                    if(i + 1 == lookLen): 
-                        if i + 1 < lookLen:   # still inside lookAhead
-                            next_char = ord(lookAhead[i+1])
-                        else:
-                            next_char = 0     # or pick a sentinel, e.g. 0 meaning "no next char"
-                        pt = (j << 16) | (l << 8) | next_char
-                        longestSub = pt
+def longestMatch(data, searchBuffer: memoryview, lookAhead: memoryview, searchLen, lookLen, pos) -> int:
+    
+    
+    
+    if(searchLen == 0):             # if there's no search buffer yet, then there's no longest match, return pointer (0,0,char)
+        return (0 << 16) | (0 << 8) | lookAhead[0]
+    
+    best_len = 0    # set initial len of match to 0
+    best_offset = 0 # set initial offset to 0, no match yet
 
-                        longestSub = pt
-                    else:                   
-                        if i + 1 < lookLen:   # still inside lookAhead
-                            next_char = ord(lookAhead[i+1])
-                        else:
-                            next_char = 0     # or pick a sentinel, e.g. 0 meaning "no next char"
-                        pt = (j << 16) | (l << 8) | next_char
-                        longestSub = pt
 
-                        longestSub = pt
-                    l += 1                  # length increased by 1 since longer subseq is found
-                    flag = True             # longer subseq found at this length
-                    break                   # move on to the next highest length
-            else:
-                
-                if(searchBuffer[searchLen-j:searchLen-j+l] == tmp):   # backwards as seen here, if rightmost is a match to the tmp subseq then it's the longest
-                    if(i + 1 == lookLen):
-                        
-                        if i + 1 < lookLen:   # still inside lookAhead
-                            next_char = ord(lookAhead[i+1])
-                        else:
-                            next_char = 0     # or pick a sentinel, e.g. 0 meaning "no next char"
-                        pt = (j << 16) | (l << 8) | next_char
-                        longestSub = pt
-                    else:                   
-                        if i + 1 < lookLen:   # still inside lookAhead
-                            next_char = ord(lookAhead[i+1])
-                        else:
-                            next_char = 0     # or pick a sentinel, e.g. 0 meaning "no next char"
-                        pt = (j << 16) | (l << 8) | next_char
-                        longestSub = pt
+    for j in range(searchLen):  # iterate through the search buffer, j is how much you subtract from the pos cursor, searchLen-j, offset is j + 1
+        length = 0  # initial length of matching sequence
+        while (length < lookLen and     # while length of subseq is the size of look len
+            (searchLen - j) + length  <= searchLen and   # while the length of the substring doesn't go past the rightmost bound of search buffer
+            searchBuffer[(searchLen -j - 1)+length] == lookAhead[length]):   # keep adding length until the match ends
+            length += 1     # increase length of found substring
 
-                        longestSub = pt
-                    l += 1                  # length increased by 1 since longer subseq is found
-                    flag = True             # longer subseq found at this length
-                    break                   # move on to the next highest length
-        if(flag == False):              # if no higher subseq found, no need to continue
+        # Once the previous loop is done it finds the match length of that position in the search buffer and saves it
+
+        if length > best_len:
+            best_len = length
+            best_offset = j + 1
+        if best_len == lookLen:
             break
-        
-    return longestSub
+
+    
+    #print(best_offset, best_len, next_char)
+    if(best_len < lookLen):
+        next_char = data[best_len + pos]
+    else:
+        next_char = 0
+
+    if best_len == 0:
+        best_offset = 0
+
+    
+
+    return (best_offset << 16) | (best_len << 8) | next_char
 
 
 """
 Decompresses a textfile using the LZ77 algorithm.
 """
 def decompress(pointers):
-    finalAnswer = ""
+    finalAnswer = bytearray()
 
     for pointer in pointers:
-        offsetAndLength = pointer
-        
-        tmp = offsetAndLength
-        tmp = tmp >> 16
-        offset = tmp
-        tmp = offsetAndLength
-        tmp = tmp >> 8
-        tmp = tmp & 0xFF
-        length = tmp
-        tmp = offsetAndLength
-        tmp = tmp & 0xFF
-        nextChar = tmp
+        offset = pointer >> 16
+        length = (pointer >> 8) & 0xFF
+        nextChar = pointer & 0xFF
           
-        for i in range(length):
-            finalAnswer += finalAnswer[len(finalAnswer)-offset]
-        if nextChar != 0:
-            finalAnswer += chr(nextChar)
-    return finalAnswer
+        if offset > 0 and length > 0:
+            start = len(finalAnswer) - offset
+            for i in range(length):
+                finalAnswer.append(finalAnswer[start + i])
+                
+        
+        if(nextChar != 0):
+            finalAnswer.append(nextChar)
+        
+    return finalAnswer.decode('latin1')
 
 def decompressionProcessing(filename):
     with open(filename, "rb") as f:
@@ -158,42 +140,42 @@ def decompressionProcessing(filename):
                 englishAnswer = decompress(pointers)
             
                 try:
-                    with open(filename[:len(filename)-4] + ".txt", "w") as write:
+                    with open(filename[:len(filename)-4] + ".txt", "w", newline="") as write:
                         write.write(englishAnswer)
                 except:
                     f = open(filename[:len(filename)-4] + ".txt", "x")
                     f.close()
-                    with open(filename[:len(filename)-4] + ".txt", "w") as write:
+                    with open(filename[:len(filename)-4] + ".txt", "w", newline="") as write:
                         write.write(englishAnswer)
 
 def compressionProcessing(filename):
     pointers = compress(filename)
     name = filename[:len(filename)-4]
-    try:
-        with open(name + ".tim", "wb") as write:
-            for pointer in pointers:
-                offset = pointer >> 16
-                length = (pointer >> 8) & 0xFF
-                next_char = pointer & 0xFF
-                write.write(struct.pack(">BB", offset, length))
-                write.write(struct.pack("B", next_char))  
-    except: 
-        f = open(name + ".tim", "x")
-        f.close()
-        with open(name + ".tim", "wb") as write:
-            for pointer in pointers:
-                offset = pointer >> 16
-                length = (pointer >> 8) & 0xFF
-                next_char = pointer & 0xFF
-                write.write(struct.pack(">BB", offset, length))
-                write.write(struct.pack("B", next_char))   
+    #try:
+    with open(name + ".tim", "wb") as write:
+                for pointer in pointers:
+                    offset = pointer >> 16
+                    length = (pointer >> 8) & 0xFF
+                    next_char = pointer & 0xFF
+                    write.write(struct.pack(">BB", offset, length))
+                    write.write(struct.pack("B", next_char))  
+    # except: 
+    #     f = open(name + ".tim", "x")
+    #     f.close()
+    #     with open(name + ".tim", "wb") as write:
+    #         for pointer in pointers:
+    #             offset = pointer[:8]
+    #             length = pointer[8:16]
+    #             next_char = pointer[16:]
+    #             write.write(struct.pack(">BB", offset, length))
+    #             write.write(struct.pack("B", next_char))   
 
 def main():
     print("Welcome to the text file compression software!")
     compOrDecomp = input("Do you want to compress (0) or decompress (1) a text file? Enter 0 or 1:")
     if compOrDecomp == "0":
         while True:
-            try:
+            #try:
                 while True:
                     filename = input("Enter the path of the text file to compress:")
                     if filename[len(filename)-4:] == ".txt":
@@ -202,9 +184,9 @@ def main():
                         print("Please enter a valid .txt file path")
                 compressionProcessing(filename)
                 break
-            except:
-                print("Please try a valid .txt file path")
-                continue
+            # except:
+            #     print("Please try a valid .txt file path")
+            #     continue
         print("Compressed into " + filename[:len(filename)-4] + ".tim successfully!")
     else: 
         while True:
