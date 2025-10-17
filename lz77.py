@@ -17,114 +17,33 @@ MAX_CANDIDATES = 64
 MIN_MATCH = 3
 
 
-"""
-Compresses a textfile using the LZ77 algorithm.
 
-@param filename     the path of the file to compress
 
-@return pointers    the list of the corresponding LZ77 compressed pointers to the text file
-"""
-def compress(filename:str):
-    pointers = []               # the array of pointers to represent the compressed data (tuples)
-    prefix_table = {}
-    with open(filename, "rb") as file:    # open the file provided
-        data = file.read()        # access all text from the file
-        data = memoryview(data)        
-    pos = 0
-    while pos < len(data):  # while the cursor isn't out of bounds
-        # Define the sliding windows
-        lookAhead = data[pos : min(pos + LOOK_AHEAD, len(data))]
-        searchBuffer = data[max(0, pos - SEARCH_BUFFER) : pos]
 
-        # Find the longest match
-        match = longestMatch(data, searchBuffer, lookAhead, len(searchBuffer), len(lookAhead), pos, prefix_table)
-        pointers.append(match)
-
-        # Extract offset/length/nextChar from the packed 24-bit integer
-        
-        offset = (match >> 16) & 0xFF
-        length = (match >> 8) & 0xFF
-        next_char = match & 0xFF
-        
-
-        # Slide window forward
-        if length < len(lookAhead):
-            pos += length + 1
-        else:
-            pos += length
-    return pointers
-            
-            
-            
-            
-"""
-Finds the longest repeating subsequence present in the search buffer compared to the look ahead buffer.
-
-@param searchBuffer     sequence of characters from file of length SEARCH_BUFFER
-@param lookAhead        sequence of characters from file of length LOOK_AHEAD
-
-@return longestSub      a tuple of format (offset, length, next char) that makes the algorithm function properly
-"""
-def longestMatch(data, searchBuffer: memoryview, lookAhead: memoryview, searchLen, lookLen, pos, prefix_table) -> int:
+def longestMatch(data, searchStart, prefix_table, pos, lookAhead):
     
-    if(searchLen == 0):             # if there's no search buffer yet, then there's no longest match, return pointer (0,0,char)
+    prefix = data[pos: pos + MIN_MATCH]
+
+    if len(prefix) < MIN_MATCH:
         return (0 << 16) | (0 << 8) | lookAhead[0]
-    
-    best_len = 0    # set initial len of match to 0
-    best_offset = 0 # set initial offset to 0, no match yet
 
-
-    for j in range(searchLen):  # iterate through the search buffer, j is how much you subtract from the pos cursor, searchLen-j, offset is j + 1
-        length = 0  # initial length of matching sequence
-        while (length < lookLen and     # while length of subseq is the size of look len
-            (searchLen - j) + length  <= searchLen and   # while the length of the substring doesn't go past the rightmost bound of search buffer
-            searchBuffer[(searchLen -j - 1)+length] == lookAhead[length]):   # keep adding length until the match ends
-            length += 1     # increase length of found substring
-
-        # Once the previous loop is done it finds the match length of that position in the search buffer and saves it
-
-        if length > best_len:
-            best_len = length
-            best_offset = j + 1
-        if best_len == lookLen:
-            break
-
-    
-    
-    if(best_len < lookLen):
-        next_char = data[best_len + pos]
-    else:
-        next_char = 0
-
-    if best_len == 0:
-        best_offset = 0
-
-    
-
-    return (best_offset << 16) | (best_len << 8) | next_char
-
-
-def newLongestMatch(data, searchStart, prefix_table, pos, lookAhead):
-    
-    prefix = data[searchStart: searchStart + MIN_MATCH]
     bestLen = 0
     bestOffset = 0
 
     if prefix in prefix_table:
         candidates = prefix_table[prefix]
+        while candidates and candidates[-1] < searchStart:
+            candidates.pop()
+    
+
         tried = 0
-        for candidate in list(candidates):
-            if candidate < searchStart:     # prune an out of searchBuffer bounds candidate for a match
-                try:
-                    candidates.pop()
-                except IndexError:
-                    pass
-                continue
+        for candidate in candidates:
 
             if tried >= MAX_CANDIDATES:
                 break
             tried += 1
             max_len = min(len(lookAhead), len(data) - pos, pos - candidate)
+            i = 0
             while i < max_len and data[candidate + i] == data[pos + i]:
                 i += 1      # length of match
             if i > bestLen:
@@ -135,8 +54,8 @@ def newLongestMatch(data, searchStart, prefix_table, pos, lookAhead):
     
     if bestLen == 0:
         return (0 << 16) | (0 << 8) | lookAhead[0]
-    elif bestLen > 0 and bestLen + pos < len(data):
-        return (bestOffset << 16) | (bestLen << 8) | lookAhead[bestLen]
+    elif bestLen + pos < len(data):
+        return (bestOffset << 16) | (bestLen << 8) | data[pos + bestLen]
     else:
         return (0 << 16) | (0 << 8) | (0)
 
@@ -147,7 +66,7 @@ def newLongestMatch(data, searchStart, prefix_table, pos, lookAhead):
 
 
 
-def new_compress(filename):
+def compress(filename):
     with open(filename, "rb") as file:
         data = file.read()
         data = memoryview(data)
@@ -160,7 +79,7 @@ def new_compress(filename):
         searchStart = max(0, pos - SEARCH_BUFFER)
         searchBuffer = data[searchStart: pos]
 
-        matchPointer = newLongestMatch(data, searchStart, prefix_table, pos, lookAhead)
+        matchPointer = longestMatch(data, searchStart, prefix_table, pos, lookAhead)
         pointers.append(matchPointer)
 
         if (matchPointer >> 8) & 0xFF == 0:
@@ -169,15 +88,15 @@ def new_compress(filename):
             move = ((matchPointer >> 8) & 0xFF) + 1
             
         
-        for k in range(pos, min(pos + move, n - (MIN_MATCH - 1))):
+        for k in range(pos, min(pos + move, len(data) - (MIN_MATCH - 1))):
             key = bytes(data[k: k + MIN_MATCH])
             dq = prefix_table.setdefault(key, deque())
             dq.appendleft(k)
 
-            while dq and dq[-1] < pos - SEARCH_BUFFER:
+            while dq and dq[-1] < k - SEARCH_BUFFER:
                 dq.pop()
             
-            if len(dq) > (SEARCH_BUFFER // 8):
+            if len(dq) > (SEARCH_BUFFER // 4):
                 dq.pop()
 
         pos += move 
@@ -264,9 +183,11 @@ def main():
             while True:
                 try:
                     while True:
-                        filename = input("Enter the path of the text file to compress:")
+                        filename = input("Enter the path of the text file to compress, or -1 to quit:")
                         if filename[len(filename)-4:] == ".txt":
                             break
+                        elif filename == "-1":
+                            return
                         else:
                             print("Please enter a valid .txt file path")
                     compressionProcessing(filename)
@@ -280,9 +201,11 @@ def main():
             while True:
                 try:
                     while True:
-                        filename = input("Enter the path of the .tim file to decompress:")
+                        filename = input("Enter the path of the .tim file to decompress, or -1 to quit:")
                         if filename[len(filename)-4:] == ".tim":
                             break
+                        elif filename == "-1":
+                            return
                         else:
                             print("Please enter a valid .tim file path")
                     decompressionProcessing(filename)
