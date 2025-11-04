@@ -8,6 +8,7 @@ of the LZ77 algorithm in Python.
 """
 
 import struct
+import sys
 from collections import deque
 
 WINDOW_SIZE = 255
@@ -174,52 +175,23 @@ def compressionProcessing(filename):
                 write.write(struct.pack("B", next_char))   
 
 def main():
-    print("Welcome to the text file compression software!")
-    while True:
-        compOrDecomp = input("Do you want to compress (0) or decompress (1) a text file? Enter 0 or 1, or -1 to quit:")
-        if compOrDecomp == "-1":
+    filename = sys.argv[1]
+    if len(sys.argv) > 2 or len(sys.argv) < 1:
+        return
+    if filename.endswith(".txt"): 
+        try:
+            compressionProcessing(filename)
+        except:
             return
-        if compOrDecomp == "0":
-            while True:
-                try:
-                    while True:
-                        filename = input("Enter the path of the text file to compress, or -1 to quit:")
-                        if filename[len(filename)-4:] == ".txt":
-                            break
-                        elif filename == "-1":
-                            return
-                        else:
-                            print("Please enter a valid .txt file path")
-                    compressionProcessing(filename)
-                    break
-                except:
-                    print("Please try a valid .txt file path")
-                    continue
-            print("Compressed into " + filename[:len(filename)-4] + ".tim successfully!")
+        return
+    if filename.endswith(".tim"):
+        try:
+            decompressionProcessing(filename)
+        except:
             return
-        if compOrDecomp == "1": 
-            while True:
-                try:
-                    while True:
-                        filename = input("Enter the path of the .tim file to decompress, or -1 to quit:")
-                        if filename[len(filename)-4:] == ".tim":
-                            break
-                        elif filename == "-1":
-                            return
-                        else:
-                            print("Please enter a valid .tim file path")
-                    decompressionProcessing(filename)
-                    break
-                except:
-                    print("Please try a valid .tim file path")
-                    continue
-                
-            
-            print("Decompressed into " + filename[:len(filename)-4] + ".txt successfully!")
-            return
-        else:
-            print("Please enter a valid option.")
-            continue
+        return
+    else:
+        return
 
 if __name__ == "__main__":
     main()
